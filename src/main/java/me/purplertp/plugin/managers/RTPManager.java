@@ -158,7 +158,7 @@ public class RTPManager {
 
                 if (secondsLeft > 0) {
                     actionbar(player, "&fTeleporting in &b" + secondsLeft + "&f...");
-                    player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 1f, 1f);
+                    player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_CHIME, 0.4f, 1.5f);
 
                     // Particles around the player
                     startLoc.getWorld().spawnParticle(Particle.REVERSE_PORTAL,
@@ -183,11 +183,10 @@ public class RTPManager {
 
                     CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                         .thenRun(() -> Bukkit.getScheduler().runTask(plugin, () -> {
-                            if (!player.isOnline() || !inRtp.contains(player.getUniqueId())) return;
+                            if (!player.isOnline()) return;
                             inRtp.remove(player.getUniqueId());
                             player.teleport(safeLoc);
-                            player.playSound(safeLoc, Sound.ENTITY_ENDERMAN_TELEPORT, 1f, 1f);
-                            player.playSound(safeLoc, Sound.ENTITY_PLAYER_LEVELUP, 1f, 1.5f);
+                            player.playSound(safeLoc, Sound.BLOCK_AMETHYST_BLOCK_CHIME, 0.6f, 1.2f);
                             if (cooldown > 0) {
                                 plugin.getCooldownManager().setCooldown(player.getUniqueId(), worldName, cooldown);
                             }
