@@ -175,9 +175,9 @@ public class RTPManager {
 
                     // Load a 3x3 grid of chunks around the destination
                     List<CompletableFuture<Chunk>> futures = new ArrayList<>();
-                    for (int dx = -1; dx <= 1; dx++) {
-                        for (int dz = -1; dz <= 1; dz++) {
-                            futures.add(dest.getChunkAtAsync(chunkX + dx, chunkZ + dz));
+                    for (int cx = -1; cx <= 1; cx++) {
+                        for (int cz = -1; cz <= 1; cz++) {
+                            futures.add(dest.getChunkAtAsync(chunkX + cx, chunkZ + cz));
                         }
                     }
 
