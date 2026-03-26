@@ -8,9 +8,12 @@ import org.bukkit.*;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -149,13 +152,13 @@ public class RTPManager {
                     inRtp.remove(player.getUniqueId());
                     cancel();
                     actionbar(player, "&cTeleport cancelled &7— &cdon't move!");
-                    player.getWorld().playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1f, 1f);
+                    player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1f, 1f);
                     return;
                 }
 
                 if (secondsLeft > 0) {
                     actionbar(player, "&fTeleporting in &b" + secondsLeft + "&f...");
-                    player.getWorld().playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 1f, 1f);
+                    player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 1f, 1f);
 
                     // Particles around the player
                     startLoc.getWorld().spawnParticle(Particle.REVERSE_PORTAL,
@@ -163,16 +166,32 @@ public class RTPManager {
                             0.3, 0.5, 0.3, 0.05);
                     secondsLeft--;
                 } else {
-                    // Teleport!
+                    // Pre-load chunks around destination async, THEN teleport
                     cancel();
-                    inRtp.remove(player.getUniqueId());
-                    player.teleport(safeLoc);
-                    player.getWorld().playSound(safeLoc, Sound.ENTITY_ENDERMAN_TELEPORT, 1f, 1f);
-                    player.getWorld().playSound(safeLoc, Sound.ENTITY_PLAYER_LEVELUP, 1f, 1.5f);
 
-                    if (cooldown > 0) {
-                        plugin.getCooldownManager().setCooldown(player.getUniqueId(), worldName, cooldown);
+                    int chunkX = safeLoc.getBlockX() >> 4;
+                    int chunkZ = safeLoc.getBlockZ() >> 4;
+                    World dest = safeLoc.getWorld();
+
+                    // Load a 3x3 grid of chunks around the destination
+                    List<CompletableFuture<Chunk>> futures = new ArrayList<>();
+                    for (int dx = -1; dx <= 1; dx++) {
+                        for (int dz = -1; dz <= 1; dz++) {
+                            futures.add(dest.getChunkAtAsync(chunkX + dx, chunkZ + dz));
+                        }
                     }
+
+                    CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                        .thenRun(() -> Bukkit.getScheduler().runTask(plugin, () -> {
+                            if (!player.isOnline() || !inRtp.contains(player.getUniqueId())) return;
+                            inRtp.remove(player.getUniqueId());
+                            player.teleport(safeLoc);
+                            player.playSound(safeLoc, Sound.ENTITY_ENDERMAN_TELEPORT, 1f, 1f);
+                            player.playSound(safeLoc, Sound.ENTITY_PLAYER_LEVELUP, 1f, 1.5f);
+                            if (cooldown > 0) {
+                                plugin.getCooldownManager().setCooldown(player.getUniqueId(), worldName, cooldown);
+                            }
+                        }));
                 }
             }
         }.runTaskTimer(plugin, 0L, 20L);
