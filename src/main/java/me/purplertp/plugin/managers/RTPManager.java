@@ -56,23 +56,26 @@ public class RTPManager {
             }
         }
 
-        String path   = "WORLD-SETTINGS." + worldName + ".";
-        int cooldown  = plugin.getConfig().getInt(path + "COOLDOWN", 0);
-        int countdown = plugin.getConfig().getInt("SETTINGS.COUNTDOWN", 5);
-        int centerX   = plugin.getConfig().getInt(path + "CENTER-X", 0);
-        int centerZ   = plugin.getConfig().getInt(path + "CENTER-Z", 0);
-        int minRadius = plugin.getConfig().getInt(path + "MIN-RADIUS", 1000);
-        int maxRadius = plugin.getConfig().getInt(path + "MAX-RADIUS", 20000);
+        String path     = "WORLD-SETTINGS." + worldName + ".";
+        int cooldown    = plugin.getConfig().getInt(path + "COOLDOWN", 0);
+        int countdown   = plugin.getConfig().getInt("SETTINGS.COUNTDOWN", 5);
+        int centerX     = plugin.getConfig().getInt(path + "CENTER-X", 0);
+        int centerZ     = plugin.getConfig().getInt(path + "CENTER-Z", 0);
+        int minRadius   = plugin.getConfig().getInt(path + "MIN-RADIUS", 1000);
+        int maxRadius   = plugin.getConfig().getInt(path + "MAX-RADIUS", 20000);
         int maxAttempts = plugin.getConfig().getInt("SETTINGS.MAX-ATTEMPTS", 25);
 
         inRtp.add(player.getUniqueId());
 
-        // Try pool first, otherwise search async
         Location poolLoc = plugin.getLocationPoolManager().pollLocation(worldName);
 
         if (poolLoc != null) {
-            preloadChunksThenCountdown(player, poolLoc, worldName, cooldown, countdown);
+            // Got a location instantly from pool —
+            // start countdown immediately AND preload chunks in background at the same time
+            preloadChunksAsync(poolLoc);
+            runCountdown(player, poolLoc, worldName, cooldown, countdown);
         } else {
+            // Pool empty — search async, then start countdown
             actionbar(player, plugin.getConfig().getString("MESSAGES.SEARCHING", "&dSearching..."));
 
             BukkitRunnable searchTicker = new BukkitRunnable() {
@@ -96,39 +99,38 @@ public class RTPManager {
                                 .replace("{attempts}", String.valueOf(maxAttempts)));
                         return;
                     }
-                    preloadChunksThenCountdown(player, found, worldName, cooldown, countdown);
+                    preloadChunksAsync(found);
+                    runCountdown(player, found, worldName, cooldown, countdown);
                 });
             });
         }
     }
 
     /**
-     * Preloads chunks around the destination on an async thread.
-     * Once done, fires the countdown entirely on the main thread.
-     * The teleport at the end is a plain synchronous call — no futures, no callbacks.
+     * Fire-and-forget async chunk preload around a destination.
+     * Runs in background — countdown proceeds in parallel.
+     * Since the world is pre-generated these load near-instantly anyway.
      */
-    private void preloadChunksThenCountdown(Player player, Location dest,
-                                            String worldName, int cooldown, int countdown) {
+    private void preloadChunksAsync(Location dest) {
+        int cx = dest.getBlockX() >> 4;
+        int cz = dest.getBlockZ() >> 4;
+        World w = dest.getWorld();
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-            int cx = dest.getBlockX() >> 4;
-            int cz = dest.getBlockZ() >> 4;
             for (int ox = -1; ox <= 1; ox++) {
                 for (int oz = -1; oz <= 1; oz++) {
                     try {
-                        Chunk chunk = dest.getWorld().getChunkAt(cx + ox, cz + oz);
+                        Chunk chunk = w.getChunkAt(cx + ox, cz + oz);
                         if (!chunk.isLoaded()) chunk.load();
                     } catch (Exception ignored) {}
                 }
             }
-
-            // Back to main thread for countdown + teleport
-            Bukkit.getScheduler().runTask(plugin, () -> {
-                if (!player.isOnline() || !inRtp.contains(player.getUniqueId())) return;
-                runCountdown(player, dest, worldName, cooldown, countdown);
-            });
         });
     }
 
+    /**
+     * Countdown runs immediately on the main thread.
+     * Teleport at 0 is a plain sync call — no futures, no callbacks.
+     */
     private void runCountdown(Player player, Location dest,
                                String worldName, int cooldown, int countdown) {
         double startX = player.getLocation().getX();
@@ -146,7 +148,6 @@ public class RTPManager {
                     return;
                 }
 
-                // Movement cancel
                 double dx = Math.abs(player.getLocation().getX() - startX);
                 double dz = Math.abs(player.getLocation().getZ() - startZ);
                 if (dx > 0.333 || dz > 0.333) {
@@ -164,7 +165,6 @@ public class RTPManager {
                             startLoc.clone().add(0, 1, 0), 8, 0.3, 0.5, 0.3, 0.05);
                     secondsLeft--;
                 } else {
-                    // Teleport — plain sync call on main thread, nothing fancy
                     inRtp.remove(player.getUniqueId());
                     cancel();
                     player.teleport(dest);
